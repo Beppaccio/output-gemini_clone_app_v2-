@@ -3,27 +3,30 @@ import numpy as np
 
 def build_portfolio(scores: pd.DataFrame, regime: pd.Series, max_positions: int = 20):
     """
-    Portafoglio bulletproof: gestisce TUTTI i casi edge.
+    100% sicuro: nessun boolean indexing ambiguo.
     """
-    # Regime sicuro: sempre 0 o 1, mai NaN
-    regime_clean = regime.fillna(0).clip(0, 1).astype(int)
+    # Pre-allineamento indici
+    regime_clean = regime.reindex(scores.index).fillna(0).astype(int)
     
-    weights_list = []
+    weights_df = pd.DataFrame(index=scores.index, columns=scores.columns, dtype=float)
     
-    for i, dt in enumerate(scores.index):
-        row_weights = pd.Series(0.0, index=scores.columns)
+    for i in range(len(scores)):
+        date = scores.index[i]
+        regime_val = int(regime_clean.iloc[i])  # SCALARE int
         
-        # Regime BULL solo
-        if regime_clean.iloc[i] == 1:
-            # Score validi per questa data
-            scores_today = scores.iloc[i].dropna()
+        if regime_val == 1:
+            # Score per riga come dict per evitare Series ambigue
+            row_scores = scores.iloc[i].to_dict()
             
-            if len(scores_today) > 0:
-                # Top N ticker
-                top_tickers = scores_today.nlargest(max_positions).index
-                n_top = len(top_tickers)
-                row_weights.loc[top_tickers] = 1.0 / n_top
-        
-        weights_list.append(row_weights)
+            # Filtra solo valori validi
+            valid_scores = {k: v for k, v in row_scores.items() if pd.notna(v)}
+            
+            if valid_scores:
+                # Top N per valore assoluto
+                top_items = sorted(valid_scores.items(), key=lambda x: x[1], reverse=True)[:max_positions]
+                n_top = len(top_items)
+                
+                for ticker, score in top_items:
+                    weights_df.loc[date, ticker] = 1.0 / n_top
     
-    return pd.DataFrame(weights_list, index=scores.index)
+    return weights_df.fillna(0)
