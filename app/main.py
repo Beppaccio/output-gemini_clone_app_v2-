@@ -16,17 +16,32 @@ def render_app():
     selected=st.sidebar.multiselect("Universe", universe["ticker"].tolist(), default=universe["ticker"].head(200).tolist())
     period=st.sidebar.selectbox("History", ["2y","3y","5y"], index=2)
     max_positions=st.sidebar.slider("Max positions", 5, 40, cfg.max_positions)
-    if st.sidebar.button("Run full pipeline"):
-        close, vol = download_ohlcv(selected, period=period)
+   if st.sidebar.button("Run full pipeline", type="primary"):
+    with st.spinner("Downloading data..."):
+        close, vol = download_ohlcv(selected[:100], period=period)  # Limite 100 per velocità
+        
+    if close.empty:
+        st.error("Nessun dato scaricato. Prova con periodo più breve.")
+        st.stop()
+    
+    st.success(f"Dati scaricati: {len(close.columns)} titoli")
+    
+    with st.spinner("Calcolando segnali..."):
         qqq = download_benchmark("QQQ", period=period).reindex(close.index).ffill()
         feats = compute_features(close, vol)
         score_ts = {}
         for t, df in feats.items():
-            score_ts[t]=score_frame(df)
-        scores = __import__("pandas").DataFrame(score_ts)
+            try:
+                score_ts[t] = score_frame(df)
+            except:
+                continue
+        scores = pd.DataFrame(score_ts).fillna(0)
+    
+    with st.spinner("Pipeline completa..."):
         regime = market_regime(qqq)
         weights = build_portfolio(scores, regime, max_positions=max_positions)
         results = run_backtest(close, weights, cfg.slippage_bps, cfg.fee_bps)
-        latest = scores.iloc[-1]
-        updated, add, remove = weekly_universe_update(latest, selected)
-        render(results, weights, selected, add, remove)
+        latest_scores = scores.iloc[-1]
+        updated, add_candidates, remove_candidates = weekly_universe_update(latest_scores, list(close.columns))
+    
+    render(results, weights, close.columns.tolist(), add_candidates, remove_candidates)
