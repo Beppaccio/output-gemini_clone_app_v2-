@@ -106,4 +106,8 @@ if st.sidebar.button("🔥 ANALIZZA", type="primary"):
         # Pesi finali
         st.subheader("🏆 Top holdings finali")
         final_weights = weights.iloc[-1].sort_values(ascending=False)
-        st.bar_chart(final_weights.
+        st.bar_chart(final_weights.head(10))
+        
+        st.dataframe(weights.tail(5).round(3))
+
+st.info("👈 Seleziona 3-6 titoli + clicca ANALIZZA")
