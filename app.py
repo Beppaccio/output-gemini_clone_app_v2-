@@ -11,31 +11,24 @@ FIXED_TICKERS = ['AAPL', 'MSFT', 'GOOGL', 'NVDA', 'TSLA', 'META', 'AMZN']
 @st.cache_data(ttl=3600)
 def get_prices(tickers, period="1y"):
     frames = []
-    valid_tickers = []
     for t in tickers:
         try:
-            # Usa Ticker().history() - restituisce SEMPRE DataFrame pulito
             hist = yf.Ticker(t).history(period=period)
             if hist.empty or len(hist) < 30:
                 continue
-            # Prendi solo Close come Series con nome ticker
             series = hist["Close"].copy()
-            series.name = t
+            series.name = str(t)
             series.index = series.index.tz_localize(None)
             frames.append(series)
-            valid_tickers.append(t)
-        except Exception as e:
+        except:
             continue
-
     if not frames:
         return pd.DataFrame()
-
-    # Unisci con concat lungo axis=1 - SICURO al 100%
     df = pd.concat(frames, axis=1)
-    df = df.dropna(how="all")
-    return df
+    df.columns = [str(c) for c in df.columns]
+    return df.dropna(how="all")
 
-# --- UI ---
+# Sidebar
 st.sidebar.title("⚙️ Config")
 selected = st.sidebar.multiselect("Titoli", FIXED_TICKERS, default=['AAPL','MSFT','GOOGL','NVDA'])
 period = st.sidebar.selectbox("Periodo", ["6mo","1y","2y","3y"], index=1)
@@ -55,14 +48,14 @@ if st.sidebar.button("🚀 ANALIZZA", type="primary"):
     weights = pd.DataFrame(0.0, index=prices.index, columns=prices.columns)
 
     for i in range(20, len(prices)):
-        top = scores.iloc[i].nlargest(n_pos).index
+        top = scores.iloc[i].nlargest(n_pos).index.tolist()
         for t in top:
-            col_idx = prices.columns.get_loc(t)
-            weights.iloc[i, col_idx] = 1.0 / n_pos
+            weights.at[prices.index[i], t] = 1.0 / n_pos
 
     port_rets = (weights.shift(1) * rets).sum(axis=1)
     equity = (1 + port_rets).cumprod()
 
+    # Metrics
     col1, col2, col3 = st.columns(3)
     col1.metric("Titoli", len(prices.columns))
     cagr = (equity.iloc[-1] ** (252 / len(equity))) - 1
@@ -70,18 +63,32 @@ if st.sidebar.button("🚀 ANALIZZA", type="primary"):
     maxdd = (equity / equity.cummax() - 1).min()
     col3.metric("Max DD", f"{maxdd:.1%}")
 
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(y=equity.values, name="Portfolio", line=dict(color="#00D4AA", width=2)))
-    fig.update_layout(
-        title="Equity Curve",
-        paper_bgcolor="#0E1117",
-        plot_bgcolor="#0E1117",
-        font_color="#FAFAFA"
-    )
-    st.plotly_chart(fig, use_container_width=True)
+    # Equity curve
+    fig1 = go.Figure()
+    fig1.add_trace(go.Scatter(
+        x=list(range(len(equity))),
+        y=equity.values.tolist(),
+        name="Portfolio",
+        line=dict(color="#00D4AA", width=2)
+    ))
+    fig1.update_layout(title="Equity Curve", paper_bgcolor="#0E1117",
+                       plot_bgcolor="#0E1117", font_color="#FAFAFA")
+    st.plotly_chart(fig1, use_container_width=True)
 
-    st.subheader("Pesi finali")
-    st.bar_chart(weights.iloc[-1].sort_values(ascending=False))
+    # Bar chart pesi con Plotly - ZERO errori altair
+    final_w = weights.iloc[-1].copy()
+    final_w = final_w[final_w > 0].sort_values(ascending=False)
+    fig2 = go.Figure()
+    fig2.add_trace(go.Bar(
+        x=final_w.index.tolist(),
+        y=final_w.values.tolist(),
+        marker_color="#00C2FF"
+    ))
+    fig2.update_layout(title="Pesi finali", paper_bgcolor="#0E1117",
+                       plot_bgcolor="#0E1117", font_color="#FAFAFA")
+    st.plotly_chart(fig2, use_container_width=True)
 
-    st.subheader("Ultime posizioni")
-    st.dataframe(weights.tail(5).round(3))
+    # Tabella
+    w_display = weights.tail(5).copy()
+    w_display.index = w_display.index.astype(str)
+    st.dataframe(w_display.round(3))
