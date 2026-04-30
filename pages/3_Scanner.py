@@ -13,7 +13,7 @@ FULL_UNIVERSE = [
     'PANW','OKTA','TEAM','HUBS','BILL','GTLB','MDB','ESTC','CFLT','BRZE',
     'ORCL','ADBE','NOW','WDAY','VEEV','INTU','ANSS','CDNS','SNPS','TYL',
     'SMCI','ANET','FTNT','CIEN','LITE','COHR','WOLF','ONTO','AEHR','ACLS',
-    'ENPH','FSLR','RUN','SEDG','ARRY','SPWR','NOVA','SHLS','STEM','BE'
+    'ENPH','FSLR','RUN','SEDG','ARRY','SPWR','NOVA','SHLS','STEM','BE','FTI'
 ]
 
 st.sidebar.title("⚙️ Scanner Config")
