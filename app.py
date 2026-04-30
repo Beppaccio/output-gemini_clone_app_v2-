@@ -6,7 +6,12 @@ import plotly.graph_objects as go
 st.set_page_config(layout="wide")
 st.title("✅ Gemini Portfolio")
 
-FIXED_TICKERS = ['AAPL', 'MSFT', 'GOOGL', 'NVDA', 'TSLA', 'META', 'AMZN']
+FIXED_TICKERS = ['AAPL','MSFT','GOOGL','NVDA','TSLA','META','AMZN','AMD','CRM','NFLX',
+    'PLTR','SNOW','CRWD','ZS','UBER','SHOP','MELI','SE','DDOG','NET',
+    'PANW','OKTA','TEAM','HUBS','BILL','GTLB','MDB','ESTC','CFLT','BRZE',
+    'ORCL','ADBE','NOW','WDAY','VEEV','INTU','ANSS','CDNS','SNPS','TYL',
+    'SMCI','ANET','FTNT','CIEN','LITE','COHR','WOLF','ONTO','AEHR','ACLS',
+    'ENPH','FSLR','RUN','SEDG','ARRY','SPWR','NOVA','SHLS','STEM','BE','FTI']
 
 @st.cache_data(ttl=3600)
 def get_prices(tickers, period="1y"):
