@@ -2,67 +2,108 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 import yfinance as yf
-import requests
-from functools import lru_cache
+from typing import Dict, List
 
 st.set_page_config(page_title="Gemini Portfolio", layout="wide")
 
-@lru_cache()
-def get_sample_universe():
-    return pd.DataFrame({
-        'ticker': ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'TSLA', 'META', 'NFLX', 
-                   'AMD', 'CRM', 'UBER', 'LYFT', 'PLTR', 'SNOW', 'CRWD', 'ZS'],
-        'name': ['Apple', 'Microsoft', 'Google', 'Amazon', 'Nvidia', 'Tesla', 'Meta', 
-                'Netflix', 'AMD', 'Salesforce', 'Uber', 'Lyft', 'Palantir', 'Snowflake', 'CrowdStrike', 'Zscaler'],
-        'exchange': ['NASDAQ']*16
-    })
+# Universo fisso per test immediato
+SAMPLE_TICKERS = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'TSLA']
 
-def download_data(tickers, period="2y"):
+def download_prices(tickers: List[str], period: str = "2y") -> pd.DataFrame:
+    """Download sicuro con fallback."""
     close_data = {}
-    for ticker in tickers[:20]:  # Limite sicuro
+    
+    for ticker in tickers:
         try:
-            data = yf.download(ticker, period=period, progress=False)['Close']
-            if len(data) > 50:
-                close_data[ticker] = data
-        except:
+            data = yf.download(ticker, period=period, progress=False, auto_adjust=True)
+            if not data.empty and len(data) > 30:
+                close_data[ticker] = data['Close']
+        except Exception as e:
+            st.warning(f"Skip {ticker}: {e}")
             continue
-    return pd.DataFrame(close_data)
+    
+    if not close_data:
+        return pd.DataFrame()
+    
+    # COSTRUZIONE DF SICURA
+    df_close = pd.DataFrame(close_data)
+    df_close = df_close.dropna(how='all')
+    
+    return df_close
 
-def simple_momentum_scores(close_df):
-    scores = pd.DataFrame(index=close_df.index, columns=close_df.columns)
-    for col in close_df.columns:
-        prices = close_df[col]
-        scores[col] = prices.pct_change(20).fillna(0)
-    return scores.rank(axis=1, ascending=False)
+def momentum_scores(close_df: pd.DataFrame) -> pd.DataFrame:
+    """Score momentum semplice."""
+    if close_df.empty:
+        return pd.DataFrame()
+    
+    scores = close_df.pct_change(20).fillna(0)
+    return scores.rank(axis=1, ascending=False, method='first')
 
+def build_weights(scores: pd.DataFrame, n_positions: int) -> pd.DataFrame:
+    """Portfolio equal-weight top N."""
+    if scores.empty:
+        return pd.DataFrame()
+    
+    weights = pd.DataFrame(0.0, index=scores.index, columns=scores.columns)
+    
+    for i in range(len(scores)):
+        top_scores = scores.iloc[i].nlargest(n_positions)
+        date = scores.index[i]
+        if len(top_scores) > 0:
+            weights.loc[date, top_scores.index] = 1.0 / len(top_scores)
+    
+    return weights
+
+def backtest_returns(close_df: pd.DataFrame, weights_df: pd.DataFrame) -> pd.Series:
+    """Backtest semplice."""
+    rets = close_df.pct_change().fillna(0)
+    port_rets = (weights_df.shift(1).fillna(0) * rets).sum(axis=1)
+    return port_rets
+
+# === UI ===
 st.title("🚀 Gemini Momentum Portfolio")
-st.markdown("**Test versione semplificata**")
+st.markdown("*Reverse engineered da SystemTrader Gemini*")
 
 # Sidebar
-selected = st.sidebar.multiselect("Titoli", get_sample_universe()['ticker'].tolist(), default=['AAPL','MSFT','GOOGL'])
-period = st.sidebar.selectbox("Periodo", ["1y", "2y"])
-n_pos = st.sidebar.slider("Posizioni", 3, 10, 5)
+st.sidebar.title("⚙️ Selezione")
+selected = st.sidebar.multiselect(
+    "Titoli", 
+    SAMPLE_TICKERS, 
+    default=['AAPL', 'MSFT', 'GOOGL']
+)
+period = st.sidebar.selectbox("Dati", ["1y", "2y", "3y"])
+n_pos = st.sidebar.slider("Posizioni", 2, 8, 4)
 
-if st.sidebar.button("Analizza", type="primary"):
-    close = download_data(selected, period)
-    if close.empty:
-        st.error("No data")
-    else:
-        scores = simple_momentum_scores(close)
-        weights = pd.DataFrame(0.0, index=close.index, columns=close.columns)
-        rets = close.pct_change()
+if st.sidebar.button("🔥 ANALIZZA", type="primary"):
+    with st.spinner("Elaborazione..."):
+        # Pipeline
+        close_prices = download_prices(selected, period)
         
-        for i in range(20, len(close)):
-            top_scores = scores.iloc[i].nlargest(n_pos)
-            date = close.index[i]
-            weights.loc[date, top_scores.index] = 1.0 / n_pos
+        if close_prices.empty:
+            st.error("❌ Nessun dato valido")
+            st.stop()
         
-        port_rets = (weights.shift(1) * rets).sum(axis=1)
-        equity = (1 + port_rets).cumprod()
+        st.success(f"✅ {len(close_prices.columns)} titoli, {len(close_prices)} giorni")
         
+        scores = momentum_scores(close_prices)
+        weights = build_weights(scores, n_pos)
+        port_returns = backtest_returns(close_prices, weights)
+        equity = (1 + port_returns).cumprod()
+        
+        # Risultati
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Titoli", len(close_prices.columns))
+        col2.metric("Posizioni", n_pos)
+        col3.metric("CAGR", f"{((equity.iloc[-1]**(252/len(equity)))**1-1):.1%}")
+        col4.metric("Max DD", f"{(equity/equity.cummax()-1).min():.1%}")
+        
+        # Grafico
         fig = go.Figure()
-        fig.add_trace(go.Scatter(y=equity, name="Portfolio"))
-        st.plotly_chart(fig)
+        fig.add_trace(go.Scatter(y=equity.values, name="Portfolio", line=dict(color="#00D4AA", width=3)))
+        fig.update_layout(title="Equity Curve", xaxis_title="Data", yaxis_title="Valore")
+        st.plotly_chart(fig, use_container_width=True)
         
-        st.dataframe(weights.tail())
-        st.success("✅ Funziona!")
+        # Pesi finali
+        st.subheader("🏆 Top holdings finali")
+        final_weights = weights.iloc[-1].sort_values(ascending=False)
+        st.bar_chart(final_weights.
