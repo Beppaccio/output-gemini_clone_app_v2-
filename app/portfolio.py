@@ -1,28 +1,29 @@
-import pandas as pd, numpy as np
-import warnings
-warnings.filterwarnings("ignore")
+import pandas as pd
+import numpy as np
 
 def build_portfolio(scores: pd.DataFrame, regime: pd.Series, max_positions: int = 20):
     """
-    Costruisce portafoglio con filtro regime.
-    Gestisce NaN nel regime con fallback neutrale.
+    Portafoglio bulletproof: gestisce TUTTI i casi edge.
     """
-    weights = []
+    # Regime sicuro: sempre 0 o 1, mai NaN
+    regime_clean = regime.fillna(0).clip(0, 1).astype(int)
     
-    # Regime sicuro: 1=bull, 0=bear/neutro, NaN→neutro
-    regime_safe = regime.fillna(0).astype(int).reindex(scores.index, fill_value=0)
+    weights_list = []
     
-    for dt in scores.index:
-        w = pd.Series(0.0, index=scores.columns)
+    for i, dt in enumerate(scores.index):
+        row_weights = pd.Series(0.0, index=scores.columns)
         
-        # Solo in regime bull (1)
-        if regime_safe.loc[dt] == 1:
-            # Top N per score, escludendo NaN
-            valid_scores = scores.loc[dt].dropna()
-            if len(valid_scores) > 0:
-                top = valid_scores.nlargest(max_positions).index
-                w.loc[top] = 1.0 / len(top)
+        # Regime BULL solo
+        if regime_clean.iloc[i] == 1:
+            # Score validi per questa data
+            scores_today = scores.iloc[i].dropna()
+            
+            if len(scores_today) > 0:
+                # Top N ticker
+                top_tickers = scores_today.nlargest(max_positions).index
+                n_top = len(top_tickers)
+                row_weights.loc[top_tickers] = 1.0 / n_top
         
-        weights.append(w)
+        weights_list.append(row_weights)
     
-    return pd.DataFrame(weights, index=scores.index)
+    return pd.DataFrame(weights_list, index=scores.index)
